@@ -99,7 +99,7 @@ struct lenv
 
 char *ltype_name(LVAL_TYPE t);
 
-void test_exit(lval *v, int *flag);
+void test_exit(lval *v, int *p_flag);
 
 lenv *lenv_new(void);
 void lenv_del(lenv *env);
@@ -130,6 +130,7 @@ lval *lval_eval(lenv *e, lval *v);
 
 // lval *builtin(lenv *e, lval *v, char *func);
 lval *builtin_exit(lenv *e, lval *a);
+lval *builtin_penv(lenv *e, lval *a);
 lval *builtin_def(lenv *e, lval *a);
 lval *builtin_op(lenv *e, lval *v, char *op);
 lval *builtin_add(lenv *e, lval *a);
@@ -426,6 +427,9 @@ void lenv_add_builtins(lenv *e)
     /* Exit Function */
     lenv_add_builtin(e, "exit", builtin_exit);
 
+    /* Print Functions */
+    lenv_add_builtin(e, "penv", builtin_penv);
+
     return;
 }
 
@@ -561,6 +565,15 @@ void lval_print(lenv *e, lval *v)
         break;
     case LVAL_FUNC:
         printf("<function>: %s", v->sym);
+        if (strcmp(v->sym, "penv") == 0)
+        {
+            printf("\n    <name>  --    <type>\n");
+            for (int i = 0; i < e->count; ++i)
+            {
+                printf("%10s  --  %10s\n", e->syms[i], ltype_name(e->vals[i]->type));
+            }
+            printf("total: %d\n", e->count);
+        }
         break;
     case LVAL_SEXPR:
         lval_expr_print(e, v, '(', ')');
@@ -752,6 +765,13 @@ lval *builtin_exit(lenv *e, lval *a)
     }
 
     return lval_sym("exit");
+}
+
+lval *builtin_penv(lenv *e, lval *a)
+{
+    LASSERT(a, a->count == 1, "Function 'penv' has no argument!");
+    lval_del(a);
+    return lval_sym("penv");
 }
 
 /**
