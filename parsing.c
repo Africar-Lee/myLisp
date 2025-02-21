@@ -523,7 +523,13 @@ lval *lval_copy(lval *v)
 
 lval *lval_set_sym(lval *v, char *sym)
 {
-    LASSERT(v, v->type != LVAL_ERR, "func-%s, line-%d: Invalid type", __func__, __LINE__);
+    LASSERT(v, v->type != LVAL_ERR || v->type != LVAL_SYM,
+            "func-%s, line-%d: Invalid type", __func__, __LINE__);
+
+    v->sym = malloc(strlen(sym) + 1);
+    strcpy(v->sym, sym);
+
+    return v;
 }
 
 /* Print a "lval" */
@@ -642,6 +648,8 @@ lval *lval_eval(lenv *e, lval *v)
     if (v->type == LVAL_SYM)
     {
         lval *x = lenv_get_value(e, v);
+        x = lval_set_sym(x, v->sym);
+
         lval_del(v);
         return x;
     }
