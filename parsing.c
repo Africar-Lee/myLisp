@@ -99,6 +99,8 @@ struct lenv
 
 char *ltype_name(LVAL_TYPE t);
 
+void test_exit(lval *v, int *flag);
+
 lenv *lenv_new(void);
 void lenv_del(lenv *env);
 
@@ -127,6 +129,7 @@ lval *lval_eval_sexpr(lenv *e, lval *v);
 lval *lval_eval(lenv *e, lval *v);
 
 // lval *builtin(lenv *e, lval *v, char *func);
+lval *builtin_exit(lenv *e, lval *a);
 lval *builtin_def(lenv *e, lval *a);
 lval *builtin_op(lenv *e, lval *v, char *op);
 lval *builtin_add(lenv *e, lval *a);
@@ -168,6 +171,12 @@ char *ltype_name(LVAL_TYPE t)
     default:
         return "Unknown";
     }
+}
+
+void test_exit(lval *val, int *p_flag)
+{
+    if (val->type == LVAL_FUNC && (strcmp(val->sym, "exit") == 0))
+        *p_flag = 0;
 }
 
 /****************
@@ -413,6 +422,9 @@ void lenv_add_builtins(lenv *e)
 
     /* Variable Functions */
     lenv_add_builtin(e, "def", builtin_def);
+
+    /* Exit Function */
+    lenv_add_builtin(e, "exit", builtin_exit);
 
     return;
 }
@@ -725,6 +737,23 @@ lval *lval_join(lval *x, lval *y)
 //     return lval_err("Unkown Function!");
 // }
 
+lval *builtin_exit(lenv *e, lval *a)
+{
+    LASSERT(a, a->count == 1, "Function 'exit' has no argument!");
+
+    /* Delete lval a */
+    lval_del(a);
+
+    /* Delete the environment */
+    for (int i = 0; i < e->count; ++i)
+    {
+        lval_del(e->vals[i]);
+        free(e->syms[i]);
+    }
+
+    return lval_sym("exit");
+}
+
 /**
  * @brief Built-in function for user to define their own function
  *
@@ -992,8 +1021,9 @@ int main(int argc, char **argv)
     puts("Lispy Version 0.0.6");
     puts("Press Ctrl+c to Exit\n");
 
+    int running = 1;
     /* In a never ending loop */
-    while (1)
+    while (running)
     {
         char *input = readline("lispy> ");
         add_history(input);
@@ -1007,8 +1037,9 @@ int main(int argc, char **argv)
             // lval *result = eval(r.output);
             lval *x = lval_eval(env, lval_read(r.output));
             lval_println(env, x);
-            lval_del(x);
             mpc_ast_delete(r.output);
+            test_exit(x, &running);
+            lval_del(x);
         }
         else
         {
