@@ -92,6 +92,7 @@ typedef lval *(*lbuiltin)(lenv *, lval *);
 typedef struct lval
 {
     int type;
+    char *name;
     double num;
 
     /* Error and symbol types have string data */
@@ -131,6 +132,7 @@ void lenv_put(lenv *e, lval *k, lval *v);
 void lenv_add_builtin(lenv *e, char *name, lbuiltin func);
 void lenv_add_builtins(lenv *e);
 
+lval *lval_new(void);
 lval *lval_num(double x);
 lval *lval_err(char *fmt, ...);
 lval *lval_sym(char *s);
@@ -141,6 +143,7 @@ lval *lval_lambda(lval *formals, lval *body);
 
 lval *lval_add_tail(lval *v, lval *x);
 lval *lval_add_head(lval *v, lval *x);
+lval *lval_set_name(lval *v, char *name);
 lval *lval_copy(lval *v);
 void lval_del(lval *v);
 lval *lval_take(lval *v, int i);
@@ -205,7 +208,7 @@ char *ltype_name(int t)
 
 void test_exit(lval *val, int *p_flag)
 {
-    if (val->type == LVAL_FUNC && (strcmp(val->sym, "exit") == 0))
+    if (val->type == LVAL_FUNC && (strcmp(val->name, "exit") == 0))
         *p_flag = 0;
 }
 
@@ -222,11 +225,19 @@ lenv *lenv_new(void)
     return e;
 }
 
+lval *lval_new(void)
+{
+    lval *n = malloc(sizeof(lval));
+    n = lval_set_name(n, "");
+    return n;
+}
+
 /* Construct a pointer to a new Number lval */
 lval *lval_num(double x)
 {
-    lval *v = (lval *)malloc(sizeof(lval));
+    lval *v = lval_new();
     v->type = LVAL_NUM;
+    v->count = 0;
     v->num = x;
     return v;
 }
@@ -234,7 +245,7 @@ lval *lval_num(double x)
 /* Construct a pointer to a new Error lval */
 lval *lval_err(char *fmt, ...)
 {
-    lval *v = (lval *)malloc(sizeof(lval));
+    lval *v = lval_new();
     v->type = LVAL_ERR;
 
     /* Create a va list and initialize it */
@@ -259,9 +270,10 @@ lval *lval_err(char *fmt, ...)
 /* Construct a pointer to a new Symbol lval */
 lval *lval_sym(char *s)
 {
-    lval *v = (lval *)malloc(sizeof(lval));
+    lval *v = lval_new();
     v->type = LVAL_SYM;
     v->sym = malloc(strlen(s) + 1);
+    v->count = 0;
     strcpy(v->sym, s);
     return v;
 }
@@ -269,7 +281,7 @@ lval *lval_sym(char *s)
 /* Construct a pointer to a new empty Sexpr lval */
 lval *lval_sexpr(void)
 {
-    lval *v = (lval *)malloc(sizeof(lval));
+    lval *v = lval_new();
     v->type = LVAL_SEXPR;
     v->count = 0;
     v->cell = NULL;
@@ -279,7 +291,7 @@ lval *lval_sexpr(void)
 /* Construct a pointer to a new empty Qexpr lval */
 lval *lval_qexpr(void)
 {
-    lval *v = (lval *)malloc(sizeof(lval));
+    lval *v = lval_new();
     v->type = LVAL_QEXPR;
     v->count = 0;
     v->cell = NULL;
@@ -289,7 +301,7 @@ lval *lval_qexpr(void)
 /* Construct a pointer to a new empty Built-In Func lval */
 lval *lval_func(lbuiltin func)
 {
-    lval *v = (lval *)malloc(sizeof(lval));
+    lval *v = lval_new();
     v->type = LVAL_FUNC;
     v->builtin = func;
     return v;
@@ -297,7 +309,7 @@ lval *lval_func(lbuiltin func)
 
 lval *lval_lambda(lval *formals, lval *body)
 {
-    lval *v = malloc(sizeof(lval));
+    lval *v = lval_new();
     v->type = LVAL_FUNC;
 
     /* Set builtin to NULL */
@@ -358,6 +370,8 @@ void lval_del(lval *v)
         break;
     }
 
+    free(v->name);
+
     /* Free the memory allocated to the lval v itself */
     free(v);
 
@@ -368,7 +382,7 @@ void lenv_del(lenv *env)
 {
     for (int i = 0; i < env->count; ++i)
     {
-        free(env->syms);
+        free(env->syms[i]);
         lval_del(env->vals[i]);
     }
     free(env->syms);
@@ -382,12 +396,12 @@ void lenv_del(lenv *env)
 
 lenv *lenv_copy(lenv *e)
 {
-    lenv *n = malloc(sizeof(lenv));
+    lenv *n = lenv_new();
 
     n->par = e->par;
     n->count = e->count;
-    n->syms = malloc(sizeof(char *) * e->count);
-    n->vals = malloc(sizeof(lval *) * e->count);
+    n->syms = malloc(sizeof(char *) * n->count);
+    n->vals = malloc(sizeof(lval *) * n->count);
     for (int i = 0; i < e->count; ++i)
     {
         n->syms[i] = malloc(strlen(e->syms[i]) + 1);
@@ -413,13 +427,16 @@ lval *lenv_get_value(lenv *e, lval *k)
     {
         return lenv_get_value(e->par, k);
     }
-    return lval_err("Unbound symbol: %s!", k->sym);
+    else
+        return lval_err("Unbound symbol: %s!", k->sym);
 }
 
 /* Using function pointer to get its name from environment */
 lval *lenv_get_key(lenv *e, lbuiltin f)
 {
     lval *res = NULL;
+    if (!e)
+        return lval_err("No such environment!");
     /* Iterate overall items in env */
     for (int i = 0; i < e->count; ++i)
     {
@@ -438,7 +455,8 @@ lval *lenv_get_key(lenv *e, lbuiltin f)
     {
         return lenv_get_key(e->par, f);
     }
-    return lval_err("No such function in environment!");
+    else
+        return lval_err("No such function in environment!");
 }
 
 /**
@@ -546,7 +564,7 @@ lval *lval_read(mpc_ast_t *t)
         return lval_sym(t->contents);
 
     /* If root (>) or sexpr or qexpr then create empty list */
-    lval *x = NULL;
+    lval *x = lval_new();
     if (strcmp(t->tag, ">") == 0)
         x = lval_sexpr();
     if (strstr(t->tag, "sexpr"))
@@ -596,9 +614,10 @@ lval *lval_add_head(lval *v, lval *x)
 
 lval *lval_copy(lval *v)
 {
-    lval *x = (lval *)malloc(sizeof(lval));
-    x->type = v->type;
+    lval *x = lval_new();
 
+    x = lval_set_name(x, v->name);
+    x->type = v->type;
     switch (v->type)
     {
     /* Copy Functions and Numbers Directly */
@@ -631,24 +650,21 @@ lval *lval_copy(lval *v)
     case LVAL_QEXPR:
     case LVAL_SEXPR:
         x->count = v->count;
-        x->cell = (lval **)malloc(sizeof(lval) * v->count);
+        x->cell = malloc(sizeof(lval *) * x->count);
         for (int i = 0; i < x->count; ++i)
             x->cell[i] = lval_copy(v->cell[i]);
-        break;
-
-    default:
         break;
     }
     return x;
 }
 
-lval *lval_set_sym(lval *v, char *sym)
+lval *lval_set_name(lval *v, char *name)
 {
     LASSERT(v, v->type != LVAL_ERR || v->type != LVAL_SYM,
             "func-%s, line-%d: Invalid type", __func__, __LINE__);
 
-    v->sym = malloc(strlen(sym) + 1);
-    strcpy(v->sym, sym);
+    v->name = malloc(strlen(name) + 1);
+    strcpy(v->name, name);
 
     return v;
 }
@@ -671,7 +687,7 @@ void lval_print(lenv *e, lval *v)
     case LVAL_FUNC:
         if (v->builtin)
         {
-            printf("<builtin>: %s", v->sym);
+            printf("%s", v->name);
         }
         else
         {
@@ -682,7 +698,7 @@ void lval_print(lenv *e, lval *v)
             putchar(')');
         }
 
-        if (strcmp(v->sym, "penv") == 0)
+        if (strcmp(v->name, "penv") == 0)
         {
             printf("\n    <name>  --    <type>\n");
             for (int i = 0; i < e->count; ++i)
@@ -765,22 +781,21 @@ lval *lval_eval_sexpr(lenv *e, lval *v)
 
     /* Call function to get result */
     lval *result = lval_call(e, f, v);
-    lval *symbol = lenv_get_key(e, f->builtin);
-    if (symbol->type == LVAL_SYM)
-    {
-        result->sym = malloc(strlen(symbol->sym) + 1);
-        memset(result->sym, 0, strlen(symbol->sym));
-        strcpy(result->sym, symbol->sym);
-    }
-    else
-    {
-        result->sym = malloc(512);
-        char *temp = "not-builtin\0";
-        strcpy(result->sym, temp);
-        result->sym = realloc(result->sym, strlen(temp) + 1);
-    }
+    // lval *symbol = lenv_get_key(e, f->builtin);
+    // if (symbol->type == LVAL_SYM)
+    // {
+    //     result->sym = malloc(strlen(symbol->sym) + 1);
+    //     strcpy(result->sym, symbol->sym);
+    // }
+    // else
+    // {
+    //     result->sym = malloc(512);
+    //     char *temp = "not-builtin\0";
+    //     strcpy(result->sym, temp);
+    //     result->sym = realloc(result->sym, strlen(temp) + 1);
+    // }
 
-    lval_del(symbol);
+    // lval_del(symbol);
     lval_del(f);
     return result;
 }
@@ -790,7 +805,7 @@ lval *lval_eval(lenv *e, lval *v)
     if (v->type == LVAL_SYM)
     {
         lval *x = lenv_get_value(e, v);
-        x = lval_set_sym(x, v->sym);
+        x = lval_set_name(x, v->sym);
 
         lval_del(v);
         return x;
@@ -891,30 +906,6 @@ lval *lval_join(lval *x, lval *y)
     lval_del(y);
     return x;
 }
-
-// lval *builtin(lenv *e, lval *v, char *func)
-// {
-//     if (strcmp("head", func) == 0)
-//         return builtin_head(e, v);
-//     if (strcmp("tail", func) == 0)
-//         return builtin_tail(e, v);
-//     if (strcmp("list", func) == 0)
-//         return builtin_list(e, v);
-//     if (strcmp("eval", func) == 0)
-//         return builtin_eval(e, v);
-//     if (strcmp("join", func) == 0)
-//         return builtin_join(e, v);
-//     if (strcmp("cons", func) == 0)
-//         return builtin_cons(e, v);
-//     if (strcmp("len", func) == 0)
-//         return builtin_len(e, v);
-//     if (strcmp("init", func) == 0)
-//         return builtin_init(e, v);
-//     if (strstr("+-*/%^addsubmuldivmod", func))
-//         return builtin_op(e, v, func);
-//     lval_del(v);
-//     return lval_err("Unkown Function!");
-// }
 
 lval *builtin_exit(lenv *e, lval *a)
 {
@@ -1262,7 +1253,6 @@ int main(int argc, char **argv)
         {
             /* On Success Print the AST */
             // mpc_ast_print(r.output);
-            // lval *result = eval(r.output);
             lval *x = lval_eval(env, lval_read(r.output));
             lval_println(env, x);
             mpc_ast_delete(r.output);
