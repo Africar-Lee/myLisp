@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.10)
 project(MyLisp)
 
 # Add the executable
-add_executable(parsing parsing.c mpc.c mpc.h)
+add_executable(parsing parsing.c mpc.c mpc.h parsing.h)
 
 # Specify the C++ standard
 set(CMAKE_CXX_STANDARD 11)
